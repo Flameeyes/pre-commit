@@ -243,3 +243,17 @@ def get_best_candidate_tag(rev: str, git_repo: str) -> str:
         if '.' in tag:
             return tag
     return rev
+
+def has_unstaged_config(config_file: str) -> bool:
+    retcode, _, _ = cmd_output_b(
+        'git', 'diff', '--quiet', '--no-ext-diff', config_file, check=False,
+    )
+    # be explicit, other git errors don't mean it has an unstaged config.
+    return retcode == 1
+
+def get_diff() -> bytes:
+    _, out, _ = cmd_output_b(
+        'git', 'diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules',
+        check=False,
+    )
+    return out

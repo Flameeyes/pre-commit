@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 import pre_commit.constants as C
 from pre_commit import clientlib
-from pre_commit import git
+from pre_commit import sapling
 from pre_commit.color import add_color_option
 from pre_commit.commands.autoupdate import autoupdate
 from pre_commit.commands.clean import clean
@@ -177,7 +177,7 @@ def _adjust_args_and_chdir(args: argparse.Namespace) -> None:
     if args.command == 'try-repo' and os.path.exists(args.repo):
         args.repo = os.path.abspath(args.repo)
 
-    toplevel = git.get_root()
+    toplevel = sapling.get_root()
     os.chdir(toplevel)
 
     args.config = os.path.relpath(args.config)
@@ -362,7 +362,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.parse_args(['--help'])
 
     with error_handler(), logging_handler(args.color):
-        git.check_for_cygwin_mismatch()
+        sapling.check_for_cygwin_mismatch()
 
         store = Store()
 

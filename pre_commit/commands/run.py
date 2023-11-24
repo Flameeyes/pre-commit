@@ -18,14 +18,14 @@ from typing import Any
 from identify.identify import tags_from_path
 
 from pre_commit import color
-from pre_commit import git
+from pre_commit import sapling
 from pre_commit import output
 from pre_commit.all_languages import languages
 from pre_commit.clientlib import load_config
 from pre_commit.hook import Hook
 from pre_commit.repository import all_hooks
 from pre_commit.repository import install_hook_envs
-from pre_commit.staged_files_only import staged_files_only
+# from pre_commit.staged_files_only import staged_files_only
 from pre_commit.store import Store
 from pre_commit.util import cmd_output_b
 
@@ -200,7 +200,7 @@ def _run_single_hook(
                 color=use_color,
             )
         duration = round(time.monotonic() - time_before, 2) or 0
-        diff_after = _get_diff()
+        diff_after = sapling.get_diff()
 
         # if the hook makes changes, fail the commit
         files_modified = diff_before != diff_after
@@ -260,23 +260,15 @@ def _all_filenames(args: argparse.Namespace) -> Iterable[str]:
     elif args.hook_stage in {'prepare-commit-msg', 'commit-msg'}:
         return (args.commit_msg_filename,)
     elif args.from_ref and args.to_ref:
-        return git.get_changed_files(args.from_ref, args.to_ref)
+        return sapling.get_changed_files(args.from_ref, args.to_ref)
     elif args.files:
         return args.files
     elif args.all_files:
-        return git.get_all_files()
-    elif git.is_in_merge_conflict():
-        return git.get_conflicted_files()
+        return sapling.get_all_files()
+    elif sapling.is_in_merge_conflict():
+        return sapling.get_conflicted_files()
     else:
-        return git.get_staged_files()
-
-
-def _get_diff() -> bytes:
-    _, out, _ = cmd_output_b(
-        'git', 'diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules',
-        check=False,
-    )
-    return out
+        return sapling.get_staged_files()
 
 
 def _run_hooks(
@@ -284,14 +276,12 @@ def _run_hooks(
         hooks: Sequence[Hook],
         skips: set[str],
         args: argparse.Namespace,
+        classifier: Classifier,
 ) -> int:
     """Actually run the hooks."""
     cols = _compute_cols(hooks)
-    classifier = Classifier.from_config(
-        _all_filenames(args), config['files'], config['exclude'],
-    )
     retval = 0
-    prior_diff = _get_diff()
+    prior_diff = sapling.get_diff()
     for hook in hooks:
         current_retval, prior_diff = _run_single_hook(
             classifier, hook, skips, cols, prior_diff,
@@ -343,18 +333,18 @@ def run(
     stash = not args.all_files and not args.files
 
     # Check if we have unresolved merge conflict files and fail fast.
-    if stash and _has_unmerged_paths():
-        logger.error('Unmerged files.  Resolve before committing.')
-        return 1
+    # if stash and _has_unmerged_paths():
+    #     logger.error('Unmerged files.  Resolve before committing.')
+    #     return 1
     if bool(args.from_ref) != bool(args.to_ref):
         logger.error('Specify both --from-ref and --to-ref.')
         return 1
-    if stash and _has_unstaged_config(config_file):
-        logger.error(
-            f'Your pre-commit configuration is unstaged.\n'
-            f'`git add {config_file}` to fix this.',
-        )
-        return 1
+    # if stash and git.has_unstaged_config(config_file):
+    #     logger.error(
+    #         f'Your pre-commit configuration is unstaged.\n'
+    #         f'`git add {config_file}` to fix this.',
+    #     )
+    #     return 1
     if (
             args.hook_stage in {'prepare-commit-msg', 'commit-msg'} and
             not args.commit_msg_filename
@@ -416,9 +406,6 @@ def run(
     environ['PRE_COMMIT'] = '1'
 
     with contextlib.ExitStack() as exit_stack:
-        if stash:
-            exit_stack.enter_context(staged_files_only(store.directory))
-
         config = load_config(config_file)
         hooks = [
             hook
@@ -441,7 +428,14 @@ def run(
         ]
         install_hook_envs(to_install, store)
 
-        return _run_hooks(config, hooks, skips, args)
+        classifier = Classifier.from_config(
+            _all_filenames(args), config['files'], config['exclude'],
+        )
+
+        if stash:
+            exit_stack.enter_context(sapling.make_temporary_commit())
+
+        return _run_hooks(config, hooks, skips, args, classifier)
 
     # https://github.com/python/mypy/issues/7726
     raise AssertionError('unreachable')
